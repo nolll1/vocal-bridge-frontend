@@ -4,7 +4,7 @@ The Vocal Bridge Frontend is a Flutter-based interface for real-time speech tran
 It allows users to record audio, send it to the backend for processing, view translations instantly, and listen to the cloned voice output.
 ---
 
-### **This repository contains **only the frontend** for VocalBridge. The backend is developed separately at https://github.com/SummitSthapit/VocalBridgeBackEnd and not included here.️**
+### **This repository contains **only the frontend** for VocalBridge. The backend is developed separately at https://github.com/nolll1/vocal-bridge-backend and not included here.️**
 
 # Features:
 
