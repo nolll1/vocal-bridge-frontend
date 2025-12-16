@@ -1,0 +1,371 @@
+import 'package:flutter/material.dart';
+import 'package:flag/flag.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
+
+
+
+void main() {
+  runApp(MaterialApp(
+    home: Translate(),
+  ));
+}
+
+class Translate extends StatefulWidget {
+  const Translate({super.key});
+
+  @override
+  State<Translate> createState() => _TranslateState();
+}
+
+class _TranslateState extends State<Translate> {
+
+  String selectedLanguagePair = "English to French";
+  TextEditingController inputController = TextEditingController();
+  TextEditingController outputController = TextEditingController();
+  final List<String> languagePairs = [
+    "English to French",
+    "French to English",
+    "Nepali to English",
+    "English to Nepali",
+  ];
+
+
+  List<Map<String, String>> translationHistory = []; // Store translations
+  final int historyLimit = 10; // Limit the history to 10 items
+
+  @override
+  void initState() {
+    super.initState();
+    loadHistoryFromLocal(); // Load saved history on app start
+  }
+
+  Future<void> saveHistoryToLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString('translationHistory', jsonEncode(translationHistory));
+  }
+
+  Future<void> loadHistoryFromLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyString = prefs.getString('translationHistory');
+    if (historyString != null) {
+      setState(() {
+        translationHistory = List<Map<String, String>>.from(jsonDecode(historyString));
+      });
+    }
+  }
+
+  Future<void> addTranslationToHistory(String input, String output) async {
+    setState(() {
+      translationHistory.insert(0, {'input': input, 'output': output});
+      if (translationHistory.length > historyLimit) {
+        translationHistory = translationHistory.sublist(0, historyLimit);
+      }
+    });
+    await saveHistoryToLocal();
+  }
+
+  // Function to send input text to the backend and retrieve the translation
+  Future<void> translateText() async {
+    final String inputText = inputController.text.trim();
+    if (inputText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Input text cannot be empty.")),
+      );
+      return;
+    }
+
+    final String fromLang = selectedLanguagePair.split(' to ')[0];
+    final String toLang = selectedLanguagePair.split(' to ')[1];
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://192.168.1.66:5000/submit'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'input': inputText, // Match backend key
+          'from': fromLang,
+          'to': toLang,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData.containsKey('translatedText')) {
+          setState(() {
+            outputController.text = responseData['translatedText'];
+          });
+          addTranslationToHistory(inputText, responseData['translatedText']);
+        } else {
+          throw Exception('Unexpected response format from server.');
+        }
+      } else {
+        throw Exception('Error from server: ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e")),
+      );
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Padding(
+          padding: EdgeInsets.zero,
+          child: Text(
+            'Translator',
+            style: TextStyle(
+              color: Colors.white,
+              letterSpacing: 1.0,
+              fontSize: 25.0,
+            ),
+          ),
+        ),
+        backgroundColor: Colors.lightBlueAccent.shade100,
+        elevation: 0,
+      ),
+      body: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              child: Center(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: Colors.grey,
+                    ),
+                    boxShadow:[
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 5,
+                        offset: Offset(2, 2),
+                      )
+                    ],
+                    color: Colors.grey[200],
+                  ),
+                  child: DropdownButton<String>(
+                    value: selectedLanguagePair,
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedLanguagePair = newValue!;
+                      });
+                    },
+                    items: languagePairs.map<DropdownMenuItem<String>>((String value) {
+                      String fromLang = value.split(' to ')[0];
+                      String toLang = value.split(' to ')[1];
+
+                      String fromFlag = fromLang == "English"
+                          ? "us"
+                          : fromLang == "French"
+                          ? "fr"
+                          : "np";
+                      String toFlag = toLang == "English"
+                          ? "us"
+                          : toLang == "French"
+                          ? "fr"
+                          : "np";
+
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Flag.fromString(fromFlag, height: 20, width: 30),
+                                  const SizedBox(width: 10),
+                                  Text(fromLang),
+                                ],
+                              ),
+                              const Row(
+                                children: [
+                                  SizedBox(width: 10),
+                                  Text("→", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  SizedBox(width: 10),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  Text(toLang),
+                                  const SizedBox(width: 10),
+                                  Flag.fromString(toFlag, height: 30, width: 30),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    icon: const SizedBox.shrink(), // Removes dropdown icon
+                    dropdownColor: Colors.white,
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              color: Colors.grey[200],
+              width: 100,
+              height: 150,
+              child: Stack(
+                children: [
+                  TextField(
+                    controller: inputController,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      labelText: "${selectedLanguagePair.split(' to ')[0]}",
+                      border: InputBorder.none,
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(),
+                      child: ElevatedButton(
+                        onPressed: translateText, // Link the translation logic here
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pinkAccent[100],
+                        ),
+                        child: const Text("Translate"),
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomLeft,
+                    child: IconButton(
+                      onPressed: () {},
+                      icon: Icon(
+                        Icons.mic,
+                        size: 35.0,
+                        color: Colors.pinkAccent[100],
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: IconButton(
+                      onPressed: () {},
+                      icon: Icon(
+                        Icons.volume_down,
+                        size: 35.0,
+                        color: Colors.pinkAccent[100],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SafeArea(
+              child: Container(
+                color: Colors.grey[200],
+                width: 100,
+                height: 150,
+                child: Stack(
+                  children: [
+                    TextField(
+                      controller: outputController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: "${selectedLanguagePair.split(' to ')[1]}",
+                        border: InputBorder.none,
+                      ),
+                      readOnly: true,
+                    ),
+                    Align(
+                      alignment: Alignment.bottomLeft,
+                      child: IconButton(
+                          onPressed: (){
+                            final translatedText= outputController.text.trim();
+                          if (translatedText.isNotEmpty) {
+                              Clipboard.setData(ClipboardData(text: translatedText));
+                           ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Copied to clipboard!')),
+                           );
+                          }
+                          },
+                         icon: Icon(
+                           Icons.copy,
+                           size: 35.0,
+                           color: Colors.pinkAccent[100],
+                         ),
+                       ),
+                    ),
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: IconButton(
+                        onPressed: () {},
+                        icon: Icon(
+                          Icons.volume_down,
+                          size: 35.0,
+                          color: Colors.pinkAccent[100],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Translation History',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Colors.grey,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 5,
+                      offset: Offset(2, 2),
+                    )
+                  ],
+                  color: Colors.grey[200],
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: translationHistory.map((translation) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5.0),
+                        child: ListTile(
+                          title: Text('Input: ${translation['input']}'),
+                          subtitle: Text('Output: ${translation['output']}'),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+
+          ],
+        ),
+      ),
+    );
+  }
+}
